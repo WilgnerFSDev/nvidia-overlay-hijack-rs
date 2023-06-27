@@ -3,10 +3,9 @@ extern crate winapi;
 use std::ffi::OsStr;
 use std::os::windows::prelude::OsStrExt;
 use std::ptr::null_mut;
-use winapi::ctypes::wchar_t;
 use winapi::shared::dxgiformat::DXGI_FORMAT_UNKNOWN;
 use winapi::shared::windef::{HWND, RECT};
-use winapi::shared::winerror::{FAILED, SUCCEEDED, S_OK};
+use winapi::shared::winerror::{SUCCEEDED};
 use winapi::um::d2d1::{
     D2D1CreateFactory, ID2D1Factory, ID2D1HwndRenderTarget, ID2D1SolidColorBrush, D2D1_BRUSH_PROPERTIES,
     D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1_FEATURE_LEVEL_DEFAULT, D2D1_HWND_RENDER_TARGET_PROPERTIES,
@@ -14,7 +13,7 @@ use winapi::um::d2d1::{
     D2D1_RENDER_TARGET_TYPE_DEFAULT, D2D1_RENDER_TARGET_USAGE_NONE, D2D1_SIZE_U, D2D1_POINT_2F,
 };
 use winapi::um::d2d1::{ID2D1Brush, D2D1_COLOR_F, D2D1_DRAW_TEXT_OPTIONS_NONE};
-use winapi::um::dcommon::{D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_PIXEL_FORMAT, DWRITE_MEASURING_MODE_NATURAL};
+use winapi::um::dcommon::{D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_PIXEL_FORMAT};
 use winapi::um::dwmapi::DwmExtendFrameIntoClientArea;
 use winapi::um::dwrite::{
     DWriteCreateFactory, IDWriteFactory, IDWriteTextFormat, DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_STRETCH_NORMAL,
@@ -323,7 +322,7 @@ impl Overlay {
             bottom: 0,
         };
         unsafe {
-            GetClientRect(self.window, &mut rc);
+            GetWindowRect(self.window, &mut rc);
         }
 
         let text_wide: Vec<u16> = OsStr::new(&text)
