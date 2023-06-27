@@ -30,6 +30,9 @@ pub enum OverlayError {
     IDWriteFactoryFailed,
     IDWriteTextFormatFailed,
 
+    NoRenderTarget,
+    DrawFailed
+
 }
 
 pub struct Overlay {
@@ -204,6 +207,33 @@ impl Overlay {
         Ok(())
     }
 
+    pub fn begin_scene(&mut self) -> Result<(), OverlayError> {
+        let tar = self.tar.as_ref().ok_or(OverlayError::NoRenderTarget)?;
+        unsafe {
+            (*tar).BeginDraw();
+            Ok(())
+        }
+    }
+
+    pub fn end_scene(&mut self) -> Result<(), OverlayError> {
+        let tar = self.tar.as_ref().ok_or(OverlayError::NoRenderTarget)?;
+        unsafe {
+            let hresult = (*tar).EndDraw(std::ptr::null_mut(), std::ptr::null_mut());
+            if hresult == S_OK {
+                Ok(())
+            } else {
+                Err(OverlayError::DrawFailed)
+            }
+        }
+    }
+
+    pub fn clear_scene(&mut self) -> Result<(), OverlayError> {
+        let tar = self.tar.as_ref().ok_or(OverlayError::NoRenderTarget)?;
+        unsafe {
+            (*tar).Clear(std::ptr::null());
+            Ok(())
+        }
+    }
 
 }
 
