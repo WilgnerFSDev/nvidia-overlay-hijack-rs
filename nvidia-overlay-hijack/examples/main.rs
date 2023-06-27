@@ -26,10 +26,11 @@ fn main() {
     // Show the overlay for 10 seconds
     let start = Instant::now();
     while start.elapsed() < Duration::from_secs(10) {
-        let _ = overlay.begin_scene();
-        let _ = overlay.clear_scene();
-        let _ = overlay.draw_text((10.0, 10.0), "Hello World!", (255, 255, 255, 255));
-        let _ = overlay.end_scene();
+        overlay.begin_scene();
+        overlay.clear_scene();
+        overlay.draw_text((10.0, 30.0), "github.com/WilgnerFSDev/nvidia-overlay-hijack-rs".to_string(), (255, 51, 0, 255));
+        overlay.draw_rect((10.0, 80.0), (100.0, 100.0), (255, 51, 0, 255));
+        overlay.end_scene();
     }
 
     println!("Done!");
