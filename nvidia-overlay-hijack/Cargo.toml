@@ -1,5 +1,5 @@
 [package]
-name = "nvidia-overlay-hijack-rs"
+name = "nvidia-overlay-hijack"
 version = "0.1.0"
 edition = "2021"
 authors = ["WilgnerFSDev <wilgner.fabio@gmail.com>"]
@@ -7,5 +7,5 @@ authors = ["WilgnerFSDev <wilgner.fabio@gmail.com>"]
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-winapi = { version = "0.3.9", features = ["winuser", "windef", "synchapi", "winnt", "winbase", "dwmapi", "memoryapi", "errhandlingapi", "d2d1", "d3d11", "d3dcommon", "winerror", "dxgi", "securitybaseapi", "minwinbase", "namedpipeapi", "ioapiset"] }
+winapi = { version = "0.3.9", features = ["winuser", "windef", "synchapi", "winnt", "winbase", "dwmapi", "memoryapi", "errhandlingapi", "d2d1", "d3d11", "d3dcommon", "winerror", "dxgi", "securitybaseapi", "minwinbase", "namedpipeapi", "ioapiset", ] }
 wio = "0.2.2"

@@ -3,15 +3,25 @@ extern crate winapi;
 use std::ffi::OsStr;
 use std::os::windows::prelude::OsStrExt;
 use std::ptr::null_mut;
+use winapi::ctypes::wchar_t;
 use winapi::shared::dxgiformat::DXGI_FORMAT_UNKNOWN;
 use winapi::shared::windef::{HWND, RECT};
-use winapi::shared::winerror::S_OK;
-use winapi::um::dcommon::{D2D1_PIXEL_FORMAT, D2D1_ALPHA_MODE_PREMULTIPLIED};
-use winapi::um::winuser::{FindWindowA, GetWindowLongA, SetWindowLongPtrA, GetClientRect};
-use winapi::um::d2d1::{ID2D1Factory, ID2D1HwndRenderTarget, D2D1CreateFactory, D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1_RENDER_TARGET_PROPERTIES, D2D1_HWND_RENDER_TARGET_PROPERTIES, D2D1_RENDER_TARGET_TYPE_DEFAULT, D2D1_RENDER_TARGET_USAGE_NONE, D2D1_FEATURE_LEVEL_DEFAULT, D2D1_SIZE_U, D2D1_PRESENT_OPTIONS_NONE};
-use winapi::um::dwrite::{IDWriteFactory, DWriteCreateFactory, DWRITE_FACTORY_TYPE_SHARED, IDWriteTextFormat, DWRITE_FONT_WEIGHT_REGULAR, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL};
-use winapi::um::dwmapi::{DwmExtendFrameIntoClientArea};
+use winapi::shared::winerror::{FAILED, SUCCEEDED, S_OK};
+use winapi::um::d2d1::{
+    D2D1CreateFactory, ID2D1Factory, ID2D1HwndRenderTarget, ID2D1SolidColorBrush, D2D1_BRUSH_PROPERTIES,
+    D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1_FEATURE_LEVEL_DEFAULT, D2D1_HWND_RENDER_TARGET_PROPERTIES,
+    D2D1_MATRIX_3X2_F, D2D1_PRESENT_OPTIONS_NONE, D2D1_RECT_F, D2D1_RENDER_TARGET_PROPERTIES,
+    D2D1_RENDER_TARGET_TYPE_DEFAULT, D2D1_RENDER_TARGET_USAGE_NONE, D2D1_SIZE_U,
+};
+use winapi::um::d2d1::{ID2D1Brush, D2D1_COLOR_F, D2D1_DRAW_TEXT_OPTIONS_NONE};
+use winapi::um::dcommon::{D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_PIXEL_FORMAT, DWRITE_MEASURING_MODE_NATURAL};
+use winapi::um::dwmapi::DwmExtendFrameIntoClientArea;
+use winapi::um::dwrite::{
+    DWriteCreateFactory, IDWriteFactory, IDWriteTextFormat, DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_STRETCH_NORMAL,
+    DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_WEIGHT_REGULAR,
+};
 use winapi::um::uxtheme::MARGINS;
+use winapi::um::winuser::{FindWindowA, GetClientRect, GetWindowLongA, GetWindowRect, SetWindowLongPtrA};
 use winapi::Interface;
 use wio::com::ComPtr;
 
@@ -24,15 +34,20 @@ pub enum OverlayError {
     FailedSetLayeredWindowAttributes,
     FailedToSetWindowPos,
     ShowWindowFailed,
-    
+
     ID2D1FactoryFailed,
     StartupD2DFailed,
     IDWriteFactoryFailed,
     IDWriteTextFormatFailed,
 
     NoRenderTarget,
-    DrawFailed
-
+    DrawFailed,
+    GetWindowRectFailed,
+    GetWriteTextFormatFailed,
+    DrawTextFailed(i32),
+    CreateBrushFailed(i32),
+    CreateSolidColorBrushFailed,
+    ID2D1BrushCastFailed,
 }
 
 pub struct Overlay {
@@ -54,14 +69,19 @@ impl Overlay {
             tar: None,
             write_factory: None,
             format: None,
-            
+
             font: font.to_string(),
             font_size: size,
         }
     }
 
     pub fn init(&mut self) -> Result<(), OverlayError> {
-        self.window = unsafe { FindWindowA(format!("{}\0", "CEF-OSC-WIDGET").as_ptr() as _, format!("{}\0", "NVIDIA GeForce Overlay").as_ptr() as _) };
+        self.window = unsafe {
+            FindWindowA(
+                format!("{}\0", "CEF-OSC-WIDGET").as_ptr() as _,
+                format!("{}\0", "NVIDIA GeForce Overlay").as_ptr() as _,
+            )
+        };
         if self.window == null_mut() {
             return Err(OverlayError::WindowNotFound);
         }
@@ -82,23 +102,35 @@ impl Overlay {
             cyTopHeight: -1,
             cyBottomHeight: -1,
         };
-        
+
         let extendframeintoclientare = unsafe { DwmExtendFrameIntoClientArea(self.window, &mut margins) };
         if extendframeintoclientare != 0 {
             return Err(OverlayError::FailedToExtendFrame);
         }
 
-        let set_layered_window_attributes: bool = unsafe { winapi::um::winuser::SetLayeredWindowAttributes(self.window, 0x000000, 0xFF, 0x02) != 0 };
+        let set_layered_window_attributes: bool =
+            unsafe { winapi::um::winuser::SetLayeredWindowAttributes(self.window, 0x000000, 0xFF, 0x02) != 0 };
         if !set_layered_window_attributes {
             return Err(OverlayError::FailedSetLayeredWindowAttributes);
         }
 
-        let set_windows_pos: bool = unsafe { winapi::um::winuser::SetWindowPos(self.window, winapi::um::winuser::HWND_TOPMOST, 0, 0, 0, 0, winapi::um::winuser::SWP_NOMOVE | winapi::um::winuser::SWP_NOSIZE) != 0 };
+        let set_windows_pos: bool = unsafe {
+            winapi::um::winuser::SetWindowPos(
+                self.window,
+                winapi::um::winuser::HWND_TOPMOST,
+                0,
+                0,
+                0,
+                0,
+                winapi::um::winuser::SWP_NOMOVE | winapi::um::winuser::SWP_NOSIZE,
+            ) != 0
+        };
         if !set_windows_pos {
             return Err(OverlayError::FailedToSetWindowPos);
         }
 
-        let show_window: bool = unsafe { winapi::um::winuser::ShowWindow(self.window, winapi::um::winuser::SW_SHOW) != 0 };
+        let show_window: bool =
+            unsafe { winapi::um::winuser::ShowWindow(self.window, winapi::um::winuser::SW_SHOW) != 0 };
         if !show_window {
             return Err(OverlayError::ShowWindowFailed);
         }
@@ -108,7 +140,7 @@ impl Overlay {
 
     pub fn startup_d2d(&mut self) -> Result<(), OverlayError> {
         let mut rc: RECT = unsafe { std::mem::zeroed() };
-        
+
         let d2d_factory: ComPtr<ID2D1Factory> = unsafe {
             let mut d2d_factory: *mut ID2D1Factory = std::ptr::null_mut();
             let hresult = D2D1CreateFactory(
@@ -118,13 +150,13 @@ impl Overlay {
                 &mut d2d_factory as *mut _ as _,
             );
 
-            if hresult == S_OK {
+            if SUCCEEDED(hresult) {
                 ComPtr::from_raw(d2d_factory)
             } else {
                 return Err(OverlayError::ID2D1FactoryFailed);
             }
         };
-        
+
         let write_factory: ComPtr<IDWriteFactory> = unsafe {
             let mut write_factory: *mut IDWriteFactory = std::ptr::null_mut();
             let hresult = DWriteCreateFactory(
@@ -133,14 +165,17 @@ impl Overlay {
                 &mut write_factory as *mut _ as _,
             );
 
-            if hresult == S_OK {
+            if SUCCEEDED(hresult) {
                 ComPtr::from_raw(write_factory)
             } else {
                 return Err(OverlayError::IDWriteFactoryFailed);
             }
         };
 
-        let font_wide: Vec<u16> = OsStr::new(&self.font).encode_wide().chain(Some(0).into_iter()).collect();
+        let font_wide: Vec<u16> = OsStr::new(&self.font)
+            .encode_wide()
+            .chain(Some(0).into_iter())
+            .collect();
         let locale_name: Vec<u16> = OsStr::new("en-us\0").encode_wide().chain(Some(0).into_iter()).collect();
         let _format: ComPtr<IDWriteTextFormat> = unsafe {
             let mut format: *mut IDWriteTextFormat = std::ptr::null_mut();
@@ -155,14 +190,16 @@ impl Overlay {
                 &mut format,
             );
 
-            if hresult == S_OK {
+            if SUCCEEDED(hresult) {
                 ComPtr::from_raw(format)
             } else {
                 return Err(OverlayError::IDWriteTextFormatFailed);
             }
         };
-        
-        unsafe { GetClientRect(self.window, &mut rc); }
+
+        unsafe {
+            GetClientRect(self.window, &mut rc);
+        }
 
         let tar: ComPtr<ID2D1HwndRenderTarget> = unsafe {
             let mut tar: *mut ID2D1HwndRenderTarget = std::ptr::null_mut();
@@ -187,13 +224,10 @@ impl Overlay {
                 presentOptions: D2D1_PRESENT_OPTIONS_NONE,
             };
 
-            let hresult = (*d2d_factory).CreateHwndRenderTarget(
-                &render_target_properties,
-                &hwnd_target_properties,
-                &mut tar,
-            );
+            let hresult =
+                (*d2d_factory).CreateHwndRenderTarget(&render_target_properties, &hwnd_target_properties, &mut tar);
 
-            if hresult == S_OK {
+            if SUCCEEDED(hresult) {
                 ComPtr::from_raw(tar)
             } else {
                 return Err(OverlayError::StartupD2DFailed);
@@ -207,42 +241,182 @@ impl Overlay {
         Ok(())
     }
 
-    pub fn begin_scene(&mut self) -> Result<(), OverlayError> {
-        let tar = self.tar.as_ref().ok_or(OverlayError::NoRenderTarget)?;
-        unsafe {
-            (*tar).BeginDraw();
-            Ok(())
-        }
-    }
-
-    pub fn end_scene(&mut self) -> Result<(), OverlayError> {
-        let tar = self.tar.as_ref().ok_or(OverlayError::NoRenderTarget)?;
-        unsafe {
-            let hresult = (*tar).EndDraw(std::ptr::null_mut(), std::ptr::null_mut());
-            if hresult == S_OK {
-                Ok(())
-            } else {
-                Err(OverlayError::DrawFailed)
+    pub fn begin_scene(&mut self) {
+        if let Some(tar) = &self.tar {
+            unsafe {
+                (*tar).BeginDraw();
             }
         }
     }
 
-    pub fn clear_scene(&mut self) -> Result<(), OverlayError> {
-        let tar = self.tar.as_ref().ok_or(OverlayError::NoRenderTarget)?;
+    pub fn end_scene(&mut self) {
+        let tar = self.tar.as_ref().expect("No render target available");
         unsafe {
-            (*tar).Clear(std::ptr::null());
-            Ok(())
+            (*tar).EndDraw(std::ptr::null_mut(), std::ptr::null_mut());
         }
     }
 
+    pub fn clear_scene(&mut self) {
+        let tar = self.tar.as_ref().expect("No render target available");
+        unsafe {
+            (*tar).Clear(std::ptr::null());
+        }
+    }
+
+    pub fn draw_text(
+        &mut self, (x, y): (f32, f32), text: &str, (r, g, b, a): (u8, u8, u8, u8),
+    ) -> Result<(), OverlayError> {
+        let tar = self.tar.as_ref().ok_or(OverlayError::NoRenderTarget)?;
+        let format = self.format.as_ref().ok_or(OverlayError::GetWriteTextFormatFailed)?;
+
+        let brush_properties = D2D1_BRUSH_PROPERTIES {
+            opacity: 1.0f32,
+            transform: D2D1_MATRIX_3X2_F {
+                matrix: [[1.0f32, 0.0f32], [0.0f32, 1.0f32], [0.0f32, 0.0f32]],
+            },
+        };
+
+        let text_utf16: Vec<u16> = OsStr::new(text).encode_wide().collect();
+
+        let mut window_metrics = unsafe { std::mem::zeroed::<RECT>() };
+        if unsafe { GetWindowRect(self.window, &mut window_metrics) } == 0 {
+            return Err(OverlayError::GetWindowRectFailed);
+        }
+
+        let color = D2D1_COLOR_F {
+            r: r as f32 / 255.0f32,
+            g: g as f32 / 255.0f32,
+            b: b as f32 / 255.0f32,
+            a: a as f32 / 255.0f32,
+        };
+
+        //let mut brush_color:Option<ComPtr<ID2D1SolidColorBrush>> = None;
+        let mut brush_color_ptr: *mut ID2D1SolidColorBrush = std::ptr::null_mut();
+        brush_color_ptr = unsafe {
+            let mut brush_color: *mut ID2D1SolidColorBrush = std::ptr::null_mut();
+            let hresult = (*tar).CreateSolidColorBrush(&color, &brush_properties, &mut brush_color);
+
+            if SUCCEEDED(hresult) {
+                brush_color
+            } else {
+                return Err(OverlayError::CreateSolidColorBrushFailed);
+            }
+        };
+
+        let draw_rect = D2D1_RECT_F {
+            left: x,
+            top: y,
+            right: (window_metrics.right - window_metrics.left) as f32,
+            bottom: (window_metrics.bottom - window_metrics.top) as f32,
+        };
+
+        let brush: *mut ID2D1Brush = brush_color_ptr as *mut ID2D1Brush;
+        unsafe {
+            (*tar).DrawText(
+                text_utf16.as_ptr(),
+                text_utf16.len() as u32,
+                format.as_raw(),
+                &draw_rect,
+                brush,
+                D2D1_DRAW_TEXT_OPTIONS_NONE,
+                DWRITE_MEASURING_MODE_NATURAL,
+            )
+        };
+        unsafe {
+            (*brush_color_ptr).Release();
+        }
+        Ok(())
+    }
+
+    pub fn draw_rect(&mut self, (x, y): (f32, f32), (width, height): (f32, f32), (r, g, b, a): (u8, u8, u8, u8)) {
+        let tar = self.tar.as_ref().expect("No render target available");
+        let brush_properties = D2D1_BRUSH_PROPERTIES {
+            opacity: 1.0f32,
+            transform: D2D1_MATRIX_3X2_F {
+                matrix: [[1.0f32, 0.0f32], [0.0f32, 1.0f32], [0.0f32, 0.0f32]],
+            },
+        };
+
+        let color = D2D1_COLOR_F {
+            r: r as f32 / 255.0f32,
+            g: g as f32 / 255.0f32,
+            b: b as f32 / 255.0f32,
+            a: a as f32 / 255.0f32,
+        };
+
+        let mut brush_color_ptr: *mut ID2D1SolidColorBrush = std::ptr::null_mut();
+        brush_color_ptr = unsafe {
+            let mut brush_color: *mut ID2D1SolidColorBrush = std::ptr::null_mut();
+            let hresult = (*tar).CreateSolidColorBrush(&color, &brush_properties, &mut brush_color);
+
+            if SUCCEEDED(hresult) {
+                brush_color
+            } else {
+                panic!("Failed to create solid color brush");
+            }
+        };
+
+        let draw_rect = D2D1_RECT_F {
+            left: x,
+            top: y,
+            right: x + width,
+            bottom: y + height,
+        };
+
+        let brush: *mut ID2D1Brush = brush_color_ptr as *mut ID2D1Brush;
+        unsafe { (*tar).DrawRectangle(&draw_rect, brush, 1.0f32, std::ptr::null_mut()) };
+        unsafe {
+            (*brush_color_ptr).Release();
+        }
+    }
+}
+
+impl Drop for Overlay {
+    fn drop(&mut self) {
+        self.begin_scene();
+        self.clear_scene();
+        self.end_scene();
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::time::{Duration, Instant};
+
     use super::*;
 
     #[test]
     fn it_works() {
-       
+        let mut overlay = Overlay::new("Consolas", 18.0);
+
+        // call init
+        let init = overlay.init();
+        if init.is_err() {
+            println!("init failed");
+        } else {
+            println!("init success");
+        }
+
+        // call startup_d2d
+        let startup_d2d = overlay.startup_d2d();
+        if startup_d2d.is_err() {
+            println!("startup_d2d failed");
+        } else {
+            println!("startup_d2d success");
+        }
+
+        println!("Successfully initialized, rendering for 10 seconds now..\n");
+
+        // Show the overlay for 10 seconds
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_secs(10) {
+            overlay.begin_scene();
+            overlay.clear_scene();
+            overlay.draw_text((10.0, 10.0), "Hello World!", (255, 0, 0, 255));
+            overlay.draw_rect((10.0, 10.0), (100.0, 100.0), (255, 0, 0, 255));
+            overlay.end_scene();
+        }
+
+        println!("Done!");
     }
 }
