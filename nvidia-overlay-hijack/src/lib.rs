@@ -45,6 +45,7 @@ impl Overlay {
         }
     }
 
+    // ** CORE FUNCTIONS **
     pub fn init(&mut self) -> Result<(), OverlayError> {
         self.window = unsafe {
             FindWindowA(
@@ -233,7 +234,9 @@ impl Overlay {
             (*tar).Clear(std::ptr::null());
         }
     }
-    
+    // ** END CORE FUNCTIONS **
+
+    // ** ADD DRAW FUNCTIONS BELOW **
     pub fn draw_text(&mut self, (x, y): (f32, f32), text: String, color: (u8, u8, u8, u8)) {
         let text_layout = self.create_text_layout(&text);
 
@@ -247,7 +250,7 @@ impl Overlay {
         });
     }
 
-    pub fn draw_rect(&mut self, (x, y): (f32, f32), (width, height): (f32, f32), color: (u8, u8, u8, u8)) {
+    pub fn draw_rect(&mut self, (x, y): (f32, f32), (width, height): (f32, f32), stroke_width: f32, color: (u8, u8, u8, u8)) {
         self.draw_element(color, |tar, brush| {
             let draw_rect = D2D1_RECT_F {
                 left: x,
@@ -255,9 +258,10 @@ impl Overlay {
                 right: x + width,
                 bottom: y + height,
             };
-            unsafe { (*tar).DrawRectangle(&draw_rect, brush, 1.0f32, std::ptr::null_mut()) };
+            unsafe { (*tar).DrawRectangle(&draw_rect, brush, stroke_width, std::ptr::null_mut()) };
         });
     }
+    // ** END DRAW FUNCTIONS **
 
     
 }
@@ -309,7 +313,7 @@ mod tests {
                 "github.com/WilgnerFSDev/nvidia-overlay-hijack-rs".to_string(),
                 (255, 51, 0, 255),
             );
-            overlay.draw_rect((10.0, 80.0), (100.0, 100.0), (255, 51, 0, 255));
+            overlay.draw_rect((10.0, 80.0), (100.0, 100.0), 2.0, (255, 51, 0, 255));
             overlay.end_scene();
         }
 

@@ -3,6 +3,9 @@ name = "nvidia-overlay-hijack"
 version = "0.1.0"
 edition = "2021"
 authors = ["WilgnerFSDev <wilgner.fabio@gmail.com>"]
+description = "A simple program to hijack the nvidia overlay and use it for your own purposes."
+repository = "https://github.com/WilgnerFSDev/nvidia-overlay-hijack-rs"
+license = "MIT"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

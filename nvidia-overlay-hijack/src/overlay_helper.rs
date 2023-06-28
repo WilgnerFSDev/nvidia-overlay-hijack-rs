@@ -4,7 +4,6 @@ use std::os::windows::prelude::OsStrExt;
 use winapi::shared::windef::RECT;
 use winapi::um::d2d1::{ID2D1SolidColorBrush, ID2D1HwndRenderTarget, D2D1_BRUSH_PROPERTIES, D2D1_COLOR_F, D2D1_MATRIX_3X2_F, ID2D1Brush};
 use winapi::shared::winerror::SUCCEEDED;
-use winapi::Interface;
 use winapi::um::dwrite::IDWriteTextLayout;
 use winapi::um::winuser::GetWindowRect;
 use wio::com::ComPtr;
