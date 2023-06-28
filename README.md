@@ -5,7 +5,7 @@
 </p>
 
 <p align="center">
-    <a href="https://github.com/wilgnerfsdev/nvidia-overlay-hijack-rs/nvidia-overlay-hijack-rs">
+    <a href="https://github.com/wilgnerfsdev/nvidia-overlay-hijack-rs/stargazers">
         <img src="https://img.shields.io/github/stars/wilgnerfsdev/nvidia-overlay-hijack-rs?colorA=363a4f&colorB=b7bdf8&style=for-the-badge">
     </a>
     <a href="https://github.com/wilgnerfsdev/nvidia-overlay-hijack-rs/issues">
