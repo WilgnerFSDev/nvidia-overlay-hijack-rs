@@ -251,13 +251,13 @@ impl Overlay {
     }
 
     pub fn draw_rect(&mut self, (x, y): (f32, f32), (width, height): (f32, f32), stroke_width: f32, color: (u8, u8, u8, u8)) {
+        let draw_rect = D2D1_RECT_F {
+            left: x,
+            top: y,
+            right: x + width,
+            bottom: y + height,
+        };
         self.draw_element(color, |tar, brush| {
-            let draw_rect = D2D1_RECT_F {
-                left: x,
-                top: y,
-                right: x + width,
-                bottom: y + height,
-            };
             unsafe { (*tar).DrawRectangle(&draw_rect, brush, stroke_width, std::ptr::null_mut()) };
         });
     }

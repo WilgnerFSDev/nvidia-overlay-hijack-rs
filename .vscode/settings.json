@@ -1,0 +1,5 @@
+{
+    "rust-analyzer.linkedProjects": [
+        ".\\nvidia-overlay-hijack\\Cargo.toml"
+    ]
+}
