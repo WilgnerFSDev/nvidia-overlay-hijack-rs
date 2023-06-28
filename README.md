@@ -35,7 +35,7 @@ This project is a robust and efficient implementation of NVIDIA Overlay Hijacker
 ```
 
 ## 🎨 **Extensibility**
-New drawing functions can be easily implemented using the draw_element function provided by OverlayHelper. This function provides all the necessary resources and specific properties and differents drawing logic can be defined within the function scope or inside the draw_element function if necessary.<br>
+New drawing functions can be easily implemented using the draw_element function provided by OverlayHelper. This function provides all the necessary resources, specific properties and differents drawing logic can be defined within the function scope or inside the draw_element function if necessary.<br>
 Here is an example with the draw_rect function:
 ``` rust
 pub fn draw_rect(&mut self, (x, y): (f32, f32), (width, height): (f32, f32), stroke_width: f32, color: (u8, u8, u8, u8)) {
