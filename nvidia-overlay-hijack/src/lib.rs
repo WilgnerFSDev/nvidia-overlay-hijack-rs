@@ -5,19 +5,19 @@ use std::os::windows::prelude::OsStrExt;
 use std::ptr::null_mut;
 use winapi::shared::dxgiformat::DXGI_FORMAT_UNKNOWN;
 use winapi::shared::windef::{HWND, RECT};
-use winapi::shared::winerror::{SUCCEEDED};
+use winapi::shared::winerror::SUCCEEDED;
 use winapi::um::d2d1::{
     D2D1CreateFactory, ID2D1Factory, ID2D1HwndRenderTarget, ID2D1SolidColorBrush, D2D1_BRUSH_PROPERTIES,
     D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1_FEATURE_LEVEL_DEFAULT, D2D1_HWND_RENDER_TARGET_PROPERTIES,
-    D2D1_MATRIX_3X2_F, D2D1_PRESENT_OPTIONS_NONE, D2D1_RECT_F, D2D1_RENDER_TARGET_PROPERTIES,
-    D2D1_RENDER_TARGET_TYPE_DEFAULT, D2D1_RENDER_TARGET_USAGE_NONE, D2D1_SIZE_U, D2D1_POINT_2F,
+    D2D1_MATRIX_3X2_F, D2D1_POINT_2F, D2D1_PRESENT_OPTIONS_NONE, D2D1_RECT_F, D2D1_RENDER_TARGET_PROPERTIES,
+    D2D1_RENDER_TARGET_TYPE_DEFAULT, D2D1_RENDER_TARGET_USAGE_NONE, D2D1_SIZE_U,
 };
 use winapi::um::d2d1::{ID2D1Brush, D2D1_COLOR_F, D2D1_DRAW_TEXT_OPTIONS_NONE};
 use winapi::um::dcommon::{D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_PIXEL_FORMAT};
 use winapi::um::dwmapi::DwmExtendFrameIntoClientArea;
 use winapi::um::dwrite::{
-    DWriteCreateFactory, IDWriteFactory, IDWriteTextFormat, DWRITE_FACTORY_TYPE_SHARED, DWRITE_FONT_STRETCH_NORMAL,
-    DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_WEIGHT_REGULAR, IDWriteTextLayout,
+    DWriteCreateFactory, IDWriteFactory, IDWriteTextFormat, IDWriteTextLayout, DWRITE_FACTORY_TYPE_SHARED,
+    DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_WEIGHT_REGULAR,
 };
 use winapi::um::uxtheme::MARGINS;
 use winapi::um::winuser::{FindWindowA, GetClientRect, GetWindowLongA, GetWindowRect, SetWindowLongPtrA};
@@ -176,7 +176,7 @@ impl Overlay {
             .chain(Some(0).into_iter())
             .collect();
         let locale_name: Vec<u16> = OsStr::new("en-us\0").encode_wide().chain(Some(0).into_iter()).collect();
-        let _format: ComPtr<IDWriteTextFormat> = unsafe {
+        let format: ComPtr<IDWriteTextFormat> = unsafe {
             let mut format: *mut IDWriteTextFormat = std::ptr::null_mut();
             let hresult = (*write_factory).CreateTextFormat(
                 font_wide.as_ptr(),
@@ -236,6 +236,7 @@ impl Overlay {
         self.d2d_factory = Some(d2d_factory);
         self.write_factory = Some(write_factory);
         self.tar = Some(tar);
+        self.format = Some(format);
 
         Ok(())
     }
@@ -262,24 +263,51 @@ impl Overlay {
         }
     }
 
-    pub fn draw_text(&mut self, (x, y): (f32, f32), text: String, (r, g, b, a): (u8, u8, u8, u8)) {
+    pub fn draw_element<F: Fn(&ComPtr<ID2D1HwndRenderTarget>, *mut ID2D1Brush)>(
+        &mut self, color: (u8, u8, u8, u8), draw: F,
+    ) {
+        let brush_color_ptr = self.create_brush(color);
         let tar = self.tar.as_ref().expect("No render target available");
-        let brush_properties = D2D1_BRUSH_PROPERTIES {
-            opacity: 1.0f32,
-            transform: D2D1_MATRIX_3X2_F {
-                matrix: [[1.0f32, 0.0f32], [0.0f32, 1.0f32], [0.0f32, 0.0f32]],
-            },
-        };
+        let brush: *mut ID2D1Brush = brush_color_ptr as *mut ID2D1Brush;
+        draw(tar, brush);
+        unsafe {
+            (*brush_color_ptr).Release();
+        }
+    }
+    
+    pub fn draw_text(&mut self, (x, y): (f32, f32), text: String, color: (u8, u8, u8, u8)) {
+        let text_layout = self.create_text_layout(&text);
+        
+        self.draw_element(color, |tar, brush| unsafe {
+            (*tar).DrawTextLayout(
+                D2D1_POINT_2F { x, y },
+                text_layout.as_raw(),
+                brush,
+                D2D1_DRAW_TEXT_OPTIONS_NONE,
+            );
+        });
+    }
 
-        let color = D2D1_COLOR_F {
-            r: r as f32 / 255.0f32,
-            g: g as f32 / 255.0f32,
-            b: b as f32 / 255.0f32,
-            a: a as f32 / 255.0f32,
-        };
+    pub fn draw_rect(&mut self, (x, y): (f32, f32), (width, height): (f32, f32), color: (u8, u8, u8, u8)) {
+        self.draw_element(color, |tar, brush| {
+            let draw_rect = D2D1_RECT_F {
+                left: x,
+                top: y,
+                right: x + width,
+                bottom: y + height,
+            };
+            unsafe { (*tar).DrawRectangle(&draw_rect, brush, 1.0f32, std::ptr::null_mut()) };
+        });
+    }
 
-        let mut brush_color_ptr: *mut ID2D1SolidColorBrush = std::ptr::null_mut();
-        brush_color_ptr = unsafe {
+    fn create_brush(&mut self, (r, g, b, a): (u8, u8, u8, u8)) -> *mut ID2D1SolidColorBrush {
+        let tar = self.tar.as_ref().expect("No render target available");
+        let brush_properties = create_brush_properties();
+
+        let color = color_u8_to_f32((r, g, b, a));
+
+        let mut _brush_color_ptr: *mut ID2D1SolidColorBrush = std::ptr::null_mut();
+        _brush_color_ptr = unsafe {
             let mut brush_color: *mut ID2D1SolidColorBrush = std::ptr::null_mut();
             let hresult = (*tar).CreateSolidColorBrush(&color, &brush_properties, &mut brush_color);
 
@@ -289,47 +317,19 @@ impl Overlay {
                 panic!("Failed to create solid color brush");
             }
         };
+        _brush_color_ptr
+    }
 
-        let font_wide: Vec<u16> = OsStr::new(&self.font)
-            .encode_wide()
-            .chain(Some(0).into_iter())
-            .collect();
-        let locale_name: Vec<u16> = OsStr::new("en-us\0").encode_wide().chain(Some(0).into_iter()).collect();
-        let format: ComPtr<IDWriteTextFormat> = unsafe {
-            let mut format: *mut IDWriteTextFormat = std::ptr::null_mut();
-            let hresult = (*self.write_factory.as_ref().unwrap()).CreateTextFormat(
-                font_wide.as_ptr(),
-                std::ptr::null_mut(),
-                DWRITE_FONT_WEIGHT_REGULAR,
-                DWRITE_FONT_STYLE_NORMAL,
-                DWRITE_FONT_STRETCH_NORMAL,
-                self.font_size,
-                locale_name.as_ptr(),
-                &mut format,
-            );
+    fn create_text_layout(&self, text: &str) -> ComPtr<IDWriteTextLayout> {
+        let format = self.format.as_ref().expect("No text format available");
 
-            if SUCCEEDED(hresult) {
-                ComPtr::from_raw(format)
-            } else {
-                return;
-            }
-        };
-
-        let mut rc: RECT = RECT {
-            left: 0,
-            top: 0,
-            right: 0,
-            bottom: 0,
-        };
+        let mut rc: RECT = RECT {left: 0, top: 0, right: 0, bottom: 0,};
         unsafe {
             GetWindowRect(self.window, &mut rc);
         }
-
-        let text_wide: Vec<u16> = OsStr::new(&text)
-            .encode_wide()
-            .chain(Some(0).into_iter())
-            .collect();
-        let text_layout: ComPtr<IDWriteTextLayout> = unsafe {
+    
+        let text_wide: Vec<u16> = OsStr::new(text).encode_wide().chain(Some(0).into_iter()).collect();
+        unsafe {
             let mut text_layout: *mut IDWriteTextLayout = std::ptr::null_mut();
             let hresult = (*self.write_factory.as_ref().unwrap()).CreateTextLayout(
                 text_wide.as_ptr(),
@@ -339,66 +339,12 @@ impl Overlay {
                 (rc.bottom - rc.top) as f32,
                 &mut text_layout,
             );
-
+    
             if SUCCEEDED(hresult) {
                 ComPtr::from_raw(text_layout)
             } else {
-                return;
+                panic!("Failed to create text layout");
             }
-        };
-
-        let brush: *mut ID2D1Brush = brush_color_ptr as *mut ID2D1Brush;
-        unsafe {
-            (*tar).DrawTextLayout(
-                D2D1_POINT_2F { x, y },
-                text_layout.as_raw(),
-                brush,
-                D2D1_DRAW_TEXT_OPTIONS_NONE,
-            );
-            (*brush_color_ptr).Release();
-        }
-        
-    }
-
-    pub fn draw_rect(&mut self, (x, y): (f32, f32), (width, height): (f32, f32), (r, g, b, a): (u8, u8, u8, u8)) {
-        let tar = self.tar.as_ref().expect("No render target available");
-        let brush_properties = D2D1_BRUSH_PROPERTIES {
-            opacity: 1.0f32,
-            transform: D2D1_MATRIX_3X2_F {
-                matrix: [[1.0f32, 0.0f32], [0.0f32, 1.0f32], [0.0f32, 0.0f32]],
-            },
-        };
-
-        let color = D2D1_COLOR_F {
-            r: r as f32 / 255.0f32,
-            g: g as f32 / 255.0f32,
-            b: b as f32 / 255.0f32,
-            a: a as f32 / 255.0f32,
-        };
-
-        let mut brush_color_ptr: *mut ID2D1SolidColorBrush = std::ptr::null_mut();
-        brush_color_ptr = unsafe {
-            let mut brush_color: *mut ID2D1SolidColorBrush = std::ptr::null_mut();
-            let hresult = (*tar).CreateSolidColorBrush(&color, &brush_properties, &mut brush_color);
-
-            if SUCCEEDED(hresult) {
-                brush_color
-            } else {
-                panic!("Failed to create solid color brush");
-            }
-        };
-
-        let draw_rect = D2D1_RECT_F {
-            left: x,
-            top: y,
-            right: x + width,
-            bottom: y + height,
-        };
-
-        let brush: *mut ID2D1Brush = brush_color_ptr as *mut ID2D1Brush;
-        unsafe { (*tar).DrawRectangle(&draw_rect, brush, 1.0f32, std::ptr::null_mut()) };
-        unsafe {
-            (*brush_color_ptr).Release();
         }
     }
 }
@@ -408,6 +354,24 @@ impl Drop for Overlay {
         self.begin_scene();
         self.clear_scene();
         self.end_scene();
+    }
+}
+
+fn color_u8_to_f32((r, g, b, a): (u8, u8, u8, u8)) -> D2D1_COLOR_F {
+    D2D1_COLOR_F {
+        r: r as f32 / 255.0f32,
+        g: g as f32 / 255.0f32,
+        b: b as f32 / 255.0f32,
+        a: a as f32 / 255.0f32,
+    }
+}
+
+fn create_brush_properties() -> D2D1_BRUSH_PROPERTIES {
+    D2D1_BRUSH_PROPERTIES {
+        opacity: 1.0f32,
+        transform: D2D1_MATRIX_3X2_F {
+            matrix: [[1.0f32, 0.0f32], [0.0f32, 1.0f32], [0.0f32, 0.0f32]],
+        },
     }
 }
 
@@ -444,7 +408,11 @@ mod tests {
         while start.elapsed() < Duration::from_secs(10) {
             overlay.begin_scene();
             overlay.clear_scene();
-            overlay.draw_text((10.0, 30.0), "github.com/WilgnerFSDev/nvidia-overlay-hijack-rs".to_string(), (255, 51, 0, 255));
+            overlay.draw_text(
+                (10.0, 30.0),
+                "github.com/WilgnerFSDev/nvidia-overlay-hijack-rs".to_string(),
+                (255, 51, 0, 255),
+            );
             overlay.draw_rect((10.0, 80.0), (100.0, 100.0), (255, 51, 0, 255));
             overlay.end_scene();
         }
