@@ -1,64 +1,35 @@
 extern crate winapi;
+pub mod core;
+pub mod overlay_helper;
+
+use crate::{
+    core::{Overlay, OverlayError},
+    overlay_helper::{OverlayHelper},
+};
 
 use std::ffi::OsStr;
 use std::os::windows::prelude::OsStrExt;
 use std::ptr::null_mut;
 use winapi::shared::dxgiformat::DXGI_FORMAT_UNKNOWN;
-use winapi::shared::windef::{HWND, RECT};
+use winapi::shared::windef::{RECT};
 use winapi::shared::winerror::SUCCEEDED;
 use winapi::um::d2d1::{
-    D2D1CreateFactory, ID2D1Factory, ID2D1HwndRenderTarget, ID2D1SolidColorBrush, D2D1_BRUSH_PROPERTIES,
+    D2D1CreateFactory, ID2D1Factory, ID2D1HwndRenderTarget,
     D2D1_FACTORY_TYPE_SINGLE_THREADED, D2D1_FEATURE_LEVEL_DEFAULT, D2D1_HWND_RENDER_TARGET_PROPERTIES,
-    D2D1_MATRIX_3X2_F, D2D1_POINT_2F, D2D1_PRESENT_OPTIONS_NONE, D2D1_RECT_F, D2D1_RENDER_TARGET_PROPERTIES,
+    D2D1_POINT_2F, D2D1_PRESENT_OPTIONS_NONE, D2D1_RECT_F, D2D1_RENDER_TARGET_PROPERTIES,
     D2D1_RENDER_TARGET_TYPE_DEFAULT, D2D1_RENDER_TARGET_USAGE_NONE, D2D1_SIZE_U,
 };
-use winapi::um::d2d1::{ID2D1Brush, D2D1_COLOR_F, D2D1_DRAW_TEXT_OPTIONS_NONE};
+use winapi::um::d2d1::{D2D1_DRAW_TEXT_OPTIONS_NONE};
 use winapi::um::dcommon::{D2D1_ALPHA_MODE_PREMULTIPLIED, D2D1_PIXEL_FORMAT};
 use winapi::um::dwmapi::DwmExtendFrameIntoClientArea;
 use winapi::um::dwrite::{
-    DWriteCreateFactory, IDWriteFactory, IDWriteTextFormat, IDWriteTextLayout, DWRITE_FACTORY_TYPE_SHARED,
+    DWriteCreateFactory, IDWriteFactory, IDWriteTextFormat, DWRITE_FACTORY_TYPE_SHARED,
     DWRITE_FONT_STRETCH_NORMAL, DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_WEIGHT_REGULAR,
 };
 use winapi::um::uxtheme::MARGINS;
-use winapi::um::winuser::{FindWindowA, GetClientRect, GetWindowLongA, GetWindowRect, SetWindowLongPtrA};
+use winapi::um::winuser::{FindWindowA, GetClientRect, GetWindowLongA, SetWindowLongPtrA};
 use winapi::Interface;
 use wio::com::ComPtr;
-
-#[derive(Debug)]
-pub enum OverlayError {
-    WindowNotFound,
-    FailedToGetWindowLong,
-    FailedToSetWindowLong,
-    FailedToExtendFrame,
-    FailedSetLayeredWindowAttributes,
-    FailedToSetWindowPos,
-    ShowWindowFailed,
-
-    ID2D1FactoryFailed,
-    StartupD2DFailed,
-    IDWriteFactoryFailed,
-    IDWriteTextFormatFailed,
-
-    NoRenderTarget,
-    DrawFailed,
-    GetWindowRectFailed,
-    GetWriteTextFormatFailed,
-    DrawTextFailed(i32),
-    CreateBrushFailed(i32),
-    CreateSolidColorBrushFailed,
-    ID2D1BrushCastFailed,
-}
-
-pub struct Overlay {
-    window: HWND,
-    d2d_factory: Option<ComPtr<ID2D1Factory>>,
-    tar: Option<ComPtr<ID2D1HwndRenderTarget>>,
-    write_factory: Option<ComPtr<IDWriteFactory>>,
-    format: Option<ComPtr<IDWriteTextFormat>>,
-    // ... other fields...
-    font: String,
-    font_size: f32,
-}
 
 impl Overlay {
     pub fn new(font: &str, size: f32) -> Self {
@@ -262,22 +233,10 @@ impl Overlay {
             (*tar).Clear(std::ptr::null());
         }
     }
-
-    pub fn draw_element<F: Fn(&ComPtr<ID2D1HwndRenderTarget>, *mut ID2D1Brush)>(
-        &mut self, color: (u8, u8, u8, u8), draw: F,
-    ) {
-        let brush_color_ptr = self.create_brush(color);
-        let tar = self.tar.as_ref().expect("No render target available");
-        let brush: *mut ID2D1Brush = brush_color_ptr as *mut ID2D1Brush;
-        draw(tar, brush);
-        unsafe {
-            (*brush_color_ptr).Release();
-        }
-    }
     
     pub fn draw_text(&mut self, (x, y): (f32, f32), text: String, color: (u8, u8, u8, u8)) {
         let text_layout = self.create_text_layout(&text);
-        
+
         self.draw_element(color, |tar, brush| unsafe {
             (*tar).DrawTextLayout(
                 D2D1_POINT_2F { x, y },
@@ -300,53 +259,7 @@ impl Overlay {
         });
     }
 
-    fn create_brush(&mut self, (r, g, b, a): (u8, u8, u8, u8)) -> *mut ID2D1SolidColorBrush {
-        let tar = self.tar.as_ref().expect("No render target available");
-        let brush_properties = create_brush_properties();
-
-        let color = color_u8_to_f32((r, g, b, a));
-
-        let mut _brush_color_ptr: *mut ID2D1SolidColorBrush = std::ptr::null_mut();
-        _brush_color_ptr = unsafe {
-            let mut brush_color: *mut ID2D1SolidColorBrush = std::ptr::null_mut();
-            let hresult = (*tar).CreateSolidColorBrush(&color, &brush_properties, &mut brush_color);
-
-            if SUCCEEDED(hresult) {
-                brush_color
-            } else {
-                panic!("Failed to create solid color brush");
-            }
-        };
-        _brush_color_ptr
-    }
-
-    fn create_text_layout(&self, text: &str) -> ComPtr<IDWriteTextLayout> {
-        let format = self.format.as_ref().expect("No text format available");
-
-        let mut rc: RECT = RECT {left: 0, top: 0, right: 0, bottom: 0,};
-        unsafe {
-            GetWindowRect(self.window, &mut rc);
-        }
     
-        let text_wide: Vec<u16> = OsStr::new(text).encode_wide().chain(Some(0).into_iter()).collect();
-        unsafe {
-            let mut text_layout: *mut IDWriteTextLayout = std::ptr::null_mut();
-            let hresult = (*self.write_factory.as_ref().unwrap()).CreateTextLayout(
-                text_wide.as_ptr(),
-                text_wide.len() as u32,
-                format.as_raw(),
-                (rc.right - rc.left) as f32,
-                (rc.bottom - rc.top) as f32,
-                &mut text_layout,
-            );
-    
-            if SUCCEEDED(hresult) {
-                ComPtr::from_raw(text_layout)
-            } else {
-                panic!("Failed to create text layout");
-            }
-        }
-    }
 }
 
 impl Drop for Overlay {
@@ -357,23 +270,6 @@ impl Drop for Overlay {
     }
 }
 
-fn color_u8_to_f32((r, g, b, a): (u8, u8, u8, u8)) -> D2D1_COLOR_F {
-    D2D1_COLOR_F {
-        r: r as f32 / 255.0f32,
-        g: g as f32 / 255.0f32,
-        b: b as f32 / 255.0f32,
-        a: a as f32 / 255.0f32,
-    }
-}
-
-fn create_brush_properties() -> D2D1_BRUSH_PROPERTIES {
-    D2D1_BRUSH_PROPERTIES {
-        opacity: 1.0f32,
-        transform: D2D1_MATRIX_3X2_F {
-            matrix: [[1.0f32, 0.0f32], [0.0f32, 1.0f32], [0.0f32, 0.0f32]],
-        },
-    }
-}
 
 #[cfg(test)]
 mod tests {

@@ -1,6 +1,6 @@
 use std::time::{Instant, Duration};
 
-use nvidia_overlay_hijack::Overlay;
+use nvidia_overlay_hijack::core::Overlay;
 
 fn main() {
     let mut overlay = Overlay::new("Consolas", 18.0);
